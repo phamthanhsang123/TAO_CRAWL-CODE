@@ -8,6 +8,7 @@ from src.modules.telegram.services.telegram_service import TelegramService
 from fastapi import HTTPException, status 
 import logging
 from src.modules.gg_sheet.services.google_sheets import GoogleApiService
+from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
 class CrawlService:
@@ -18,8 +19,27 @@ class CrawlService:
         
         try:
             # 1. BẮT ĐẦU CÀO DỮ LIỆU
+            groups = payload.groups
+
+            if not groups:
+                sheet_data = ggSheet.get_sheet_data(
+                    spreadsheet_id=Config.SPREADSHEET_ID,
+                    sheet_name=Config.GOOGLE_SHEET_NAME
+                )
+
+                groups = [
+    SimpleNamespace(
+        name=row.get("name", "Facebook Group"),
+        url=row.get("group_url", "").strip()
+    )
+    for row in sheet_data
+    if row.get("group_url")
+]
+
+                print("GROUPS FROM GOOGLE SHEET =", groups)
+
             daily_summary_report: List[GroupSummary] = scraper.scrape_groups(
-                groups=payload.groups,
+                groups=groups,
                 custom_email=payload.tkFB.useName,
                 custom_pass=payload.tkFB.password
             )
@@ -68,8 +88,27 @@ class CrawlService:
         scraper = FacebookScraper(Config)
         ggSheet=GoogleApiService()
         try:
+            groups = payload.groups
+
+            if not groups:
+                sheet_data = ggSheet.get_sheet_data(
+                    spreadsheet_id=Config.SPREADSHEET_ID,
+                    sheet_name=Config.GOOGLE_SHEET_NAME
+                )
+
+                groups = [
+    SimpleNamespace(
+        name=row.get("name", "Facebook Group"),
+        url=row.get("group_url", "").strip()
+    )
+    for row in sheet_data
+    if row.get("group_url")
+]
+
+                print("GROUPS FROM GOOGLE SHEET =", groups)
+
             scraped_data: List[GroupSummary] = scraper.scrape_groups(
-                groups=payload.groups,
+                groups=groups,
                 custom_email=payload.tkFB.useName,
                 custom_pass=payload.tkFB.password
             )

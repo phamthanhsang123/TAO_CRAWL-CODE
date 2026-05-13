@@ -1,7 +1,14 @@
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+env_path = Path(__file__).resolve().parents[3] / ".env"
+
+print("ENV PATH:", env_path)
+
+load_dotenv(dotenv_path=env_path)
+
+print("GOOGLE_CREDENTIALS_PATH =", os.getenv("GOOGLE_CREDENTIALS_PATH"))
 
 class Config:
    
@@ -57,8 +64,8 @@ class Config:
     TELEGRAM_TOKEN=os.getenv("TELEGRAM_TOKEN")
     TELEGRAM_CHAT_ID=os.getenv("TELEGRAM_CHAT_ID")
 
-    NAME_URL_GG_SHEET="URL"
-    NAME_GROUP_GG_SHEET="Tên Group"
+    NAME_URL_GG_SHEET="group_url"
+    NAME_GROUP_GG_SHEET="name"
 
     COOKIE_DIR = "sessions"
     NGROK_AUTH_TOKEN=os.getenv("NGROK_AUTH_TOKEN")
