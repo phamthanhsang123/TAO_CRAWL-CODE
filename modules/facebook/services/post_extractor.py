@@ -7,6 +7,104 @@ class PostExtractor:
     """Class chuyên chịu trách nhiệm đọc hiểu các thẻ HTML/DOM của Facebook"""
     # nói chung chuyên tóc tách dữ liệu từ bài viết
 
+    @staticmethod
+    def collect_visible_post_urls(page):
+        return page.evaluate("""
+        () => {
+        const urls = [...document.querySelectorAll('a[href]')]
+            .map(a => a.href)
+            .map(href => {
+            const m = href.match(/\\/groups\\/([^/]+)\\/posts\\/(\\d+)/);
+            if (!m) return null;
+
+            const group = m[1];
+            const postId = m[2];
+
+            return `https://www.facebook.com/groups/${group}/posts/${postId}/`;
+            })
+            .filter(Boolean);
+
+        return [...new Set(urls)];
+        }
+        """)
+
+
+    @staticmethod
+    def collect_post_urls(page):
+        return page.evaluate("""
+        () => {
+        const hrefs = [...document.querySelectorAll('a[href]')]
+            .map(a => a.href);
+
+        console.log("ALL GROUP LINKS", hrefs.filter(x => x.includes('/groups/')).slice(0, 50));
+
+        const urls = hrefs.map(href => {
+            const m = href.match(/\\/groups\\/([^/?#]+)\\/(posts|permalink)\\/(\\d+)/);
+            if (!m) return null;
+
+            return `https://www.facebook.com/groups/${m[1]}/posts/${m[3]}/`;
+        }).filter(Boolean);
+
+        return [...new Set(urls)];
+    }
+    """)
+
+    @staticmethod
+    def extract_post_url_from_dialog(page):
+        data = page.evaluate("""
+        () => {
+        const dialog = document.querySelector('[role="dialog"]');
+
+        const root = dialog || document.body;
+
+        const links = [...root.querySelectorAll('a[href]')]
+            .map(a => ({
+            text: (a.innerText || '').trim(),
+            href: a.href
+            }));
+
+        let url = "";
+
+        // Ưu tiên permalink bài viết chính
+        for (const x of links) {
+            const m = x.href.match(/\\/groups\\/([^/?#]+)\\/permalink\\/(\\d+)/);
+            if (!m) continue;
+
+            url = `https://www.facebook.com/groups/${m[1]}/posts/${m[2]}/`;
+            break;
+        }
+
+        // Fallback posts, bỏ comment_id
+        if (!url) {
+            for (const x of links) {
+            if (x.href.includes("comment_id=")) continue;
+
+            const m = x.href.match(/\\/groups\\/([^/?#]+)\\/posts\\/(\\d+)/);
+            if (!m) continue;
+
+            url = `https://www.facebook.com/groups/${m[1]}/posts/${m[2]}/`;
+            break;
+            }
+        }
+
+        return {
+            hasDialog: !!dialog,
+            url,
+            dialogText: dialog ? (dialog.innerText || '').slice(0, 300) : "",
+            sampleLinks: links
+            .filter(x =>
+                x.href.includes("/groups/") ||
+                x.href.includes("/posts/") ||
+                x.href.includes("/permalink/")
+            )
+            .slice(0, 20)
+        };
+        }
+        """)
+
+        print("DIALOG DEBUG =", data)
+
+        return data.get("url") or ""
 
     # hàm chuyên bóc tách lấy link bài viết và thời gian đăng bài viết đó 
     @staticmethod
@@ -19,8 +117,11 @@ class PostExtractor:
         # ── BƯỚC 1: Tìm URL bài viết ─────────────────────────────────────
               for link in all_links:
                   href = link.get_attribute('href') or ''
-                  if not POST_URL_RE.search(href):
+                  href = href.split("?")[0]
+                  if '/posts/' not in href and '/permalink/' not in href:
                      continue
+                #   if not POST_URL_RE.search(href):
+                #      continue
                   candidate = clean_post_url(href)
                   if candidate:
                      url = candidate
@@ -55,6 +156,8 @@ class PostExtractor:
             #  BƯỚC 1: Quét bề nổi - Dùng Regex tìm các link <a> hiển nhiên
             for link in element.locator('a[href]').all():
                 href = link.get_attribute('href') or ''
+                if href:
+                    print("HREF DEBUG =", href)
                 if VIDEO_URL_RE.search(href):
                     return clean_post_url(href)
 
@@ -126,82 +229,115 @@ class PostExtractor:
     @staticmethod
     def get_stats(element) -> Dict[str, int]:
         reactions = 0
-        comments = 0
-        shares = 0
+        comments  = 0
+        shares    = 0
+        seen: set = set()
+        # kiểm tra xem nằm ở đâu
+        # # DEBUG: thêm tạm vào đầu hàm
+        # try:
+        #     for btn in element.locator('div[role="button"], span[role="button"]').all():
+        #        txt = (btn.inner_text() or '').strip()
+        #        if txt:
+        #            print(f"[DEBUG BTN] repr={repr(txt[:80])}")
+        #     for node in element.locator('[aria-label]').all():
+        #          label = (node.get_attribute('aria-label') or '').strip()
+        #          if label:
+        #             print(f"[DEBUG ARIA] repr={repr(label[:80])}")
+        # except:
+        #     pass
 
+        # ── REACTIONS: Giữ nguyên logic cũ qua aria-label ─────────────────
         try:
-            stats = element.evaluate(r"""
-                (el) => {
-                    const toNumber = (raw) => {
-                        if (!raw) return 0;
-                        let t = String(raw).toLowerCase().replace(/\\s+/g, ' ').trim();
-                        t = t.replace(/[^\d.,kmbt]/g, '');
-                        if (!t) return 0;
+            for node in element.locator('[aria-label]').all():
+                label = (node.get_attribute('aria-label') or '').strip()
+                if not label or label in seen:
+                    continue
+                seen.add(label)
+                ll = label.lower()
 
-                        let mul = 1;
-                        if (t.endsWith('k')) { mul = 1_000; t = t.slice(0, -1); }
-                        else if (t.endsWith('m')) { mul = 1_000_000; t = t.slice(0, -1); }
-                        else if (t.endsWith('b')) { mul = 1_000_000_000; t = t.slice(0, -1); }
-                        else if (t.endsWith('t')) { mul = 1_000_000_000_000; t = t.slice(0, -1); }
+                if NON_REACTION_KEYWORDS.search(ll):
+                    continue
 
-                        t = t.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
-                        const n = parseFloat(t);
-                        return Number.isFinite(n) ? Math.round(n * mul) : 0;
-                    };
-
-                    const getFirstNumber = (text) => {
-                        if (!text) return 0;
-                        const m = String(text).match(/\d[\d.,]*\\s*[kmbt]?/i);
-                        return m ? toNumber(m[0]) : 0;
-                    };
-
-                    let reactions = 0;
-                    let comments = 0;
-                    let shares = 0;
-                    const seen = new Set();
-
-                    for (const node of el.querySelectorAll('[aria-label], div[role="button"], span[role="button"]')) {
-                        const label = ((node.getAttribute('aria-label') || '') + ' ' + (node.innerText || '')).trim();
-                        if (!label) continue;
-                        const key = label.toLowerCase();
-                        if (seen.has(key)) continue;
-                        seen.add(key);
-
-                        if ((/comment|bình\\s*luận/i).test(label)) {
-                            comments = Math.max(comments, getFirstNumber(label));
-                            continue;
-                        }
-                        if ((/share|chia\\s*sẻ/i).test(label)) {
-                            shares = Math.max(shares, getFirstNumber(label));
-                            continue;
-                        }
-                        if ((/like|react|người|thích|cảm\\s*xúc/i).test(label) && !(/comment|bình\\s*luận|share|chia\\s*sẻ/i).test(label)) {
-                            reactions = Math.max(reactions, getFirstNumber(label));
-                        }
-                    }
-
-                    return { reactions, comments, shares };
-                }
-            """)
-
-            if stats:
-                reactions = max(reactions, int(stats.get('reactions', 0) or 0))
-                comments = max(comments, int(stats.get('comments', 0) or 0))
-                shares = max(shares, int(stats.get('shares', 0) or 0))
+                if 'người' in ll:
+                    m = REACTION_NUM_RE.search(label)
+                    if m:
+                        val = parse_interactions(m.group(1))
+                        if val > 0:
+                            reactions += val
         except Exception:
             pass
 
-        # fallback cũ nếu DOM chưa hiển thị đủ aria-label
-        if comments == 0 or shares == 0:
+        # ── COMMENTS + SHARES: Bắt theo vị trí trong action bar ───────────
+        try:
+            action_bar = element.evaluate("""
+                (el) => {
+                    const results = { comments: 0, shares: 0 };
+                    
+                    // Tìm wrapper chứa các nút tương tác chính
+                    const allBtns = el.querySelectorAll('div[role="button"], span[role="button"]');
+                    
+                    // Thu thập tất cả button chỉ là số thuần, theo thứ tự DOM
+                    const numericBtns = [];
+
+                    for (const btn of allBtns) {
+                        const txt = (btn.innerText || '').trim();
+
+                        // lấy mọi node có số ngắn
+                        if (/^[0-9.,KMBkmb]+$/.test(txt)) {
+
+                            numericBtns.push({
+                                text: txt,
+                                ariaLabel: btn.getAttribute('aria-label') || '',
+                                context: btn.closest('div')?.innerText || ''
+                            });
+                        }
+                    }
+
+                        console.log("NUMERIC_BTNS =", numericBtns);
+
+            return {
+                comments: numericBtns.length >= 2 ? numericBtns[1].text : 0,
+                shares: numericBtns.length >= 3 ? numericBtns[2].text : 0,
+                debugNums: numericBtns.map(x => x.text)
+            };
+                    
+                    return results;
+                }
+            """)
+            
+            if action_bar:
+                print("ACTION_BAR =", action_bar)
+                if action_bar.get('debugNums'):
+                    nums = action_bar['debugNums']
+
+                    print("DEBUG NUMS =", nums)
+
+                    # Facebook hiện tại:
+                    # [0] = likes
+                    # [1] = comments
+                    # [2] = shares
+
+                    if len(nums) >= 1:
+                        comments = parse_interactions(str(nums[0]))
+
+                    if len(nums) >= 2:
+                        shares = parse_interactions(str(nums[1]))
+                    
+        except Exception:
+            pass
+
+        # ── FALLBACK: Dùng aria-label "Thích: 93 người" style ─────────────
+        if not comments or not shares:
             try:
                 for node in element.locator('[aria-label]').all():
                     label = (node.get_attribute('aria-label') or '').strip()
                     if not label:
                         continue
-                    if comments == 0 and (m := COMMENT_RE.search(label)):
-                        comments = parse_interactions(m.group(1) or m.group(2) or '')
-                    if shares == 0 and (m := SHARE_RE.search(label)):
-                        shares = parse_interactions(m.group(1) or m.group(2) or '')
+                    ll = label.lower()
+                    if not comments and (m := COMMENT_RE.search(label)):
+                        comments = parse_interactions(m.group(1))
+                    if not shares and (m := SHARE_RE.search(label)):
+                        shares = parse_interactions(m.group(1))
                     if comments and shares:
                         break
             except Exception:
@@ -331,5 +467,6 @@ class PostExtractor:
                 return content.strip()
         except Exception:
             pass
+            
             
         return ""

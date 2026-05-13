@@ -16,12 +16,12 @@ class Config:
     STATE_PATH = "facebook_state.json"
     OUTPUT_FILE = "fb_posts_final.txt"
     OUTPUT_FILE_HOT = "fb_post_hot.txt"
-    SCROLL_ATTEMPTS = int(os.getenv("SCROLL_ATTEMPTS", 15))
+    SCROLL_ATTEMPTS = int(os.getenv("SCROLL_ATTEMPTS", 30))
     SCROLL_DISTANCE = 2000      # Số pixel cuộn chuột mỗi lần
     SCROLL_SLEEP_MIN = 1.5      # Thời gian nghỉ tối thiểu sau khi cuộn (giây)
     SCROLL_SLEEP_MAX = 4.0      # Thời gian nghỉ tối đa sau khi cuộn (giây)
-    MAX_OLD_POSTS_LIMIT = 5     # Ngưỡng bài cũ liên tiếp để dừng tool
-    SAFE_LIMIT=100                # ngưỡng bài viết tối đa để ngừng nếu không nó sẽ lấy mãi nếu có các bài viết hợp lệ 
+    MAX_OLD_POSTS_LIMIT = 20     # Ngưỡng bài cũ liên tiếp để dừng tool
+    SAFE_LIMIT=300                # ngưỡng bài viết tối đa để ngừng nếu không nó sẽ lấy mãi nếu có các bài viết hợp lệ 
     #  trang đăng nhập nếu chưa lấy cookie
     # Tìm đến các ô để nhập dữ liệu login
       # ô email
@@ -36,7 +36,7 @@ class Config:
     FB_PASSWORD = os.getenv("FB_PASSWORD")
     # thẻ bài viết
     # Thẻ bao quanh toàn bộ 1 bài viết (thường là div con trực tiếp của feed)
-    FB_POST_CONTAINER = 'div[role="feed"] > div, div[data-testid="fbfeed_story"]'
+    FB_POST_CONTAINER = 'div[role="feed"] > div'
 
     # Thẻ chứa nội dung text chính
     FB_POST_CONTENT = 'div[data-ad-comet-preview="message"]'
