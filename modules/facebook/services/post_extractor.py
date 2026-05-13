@@ -257,7 +257,7 @@ class PostExtractor:
                     if not comments and (m := COMMENT_RE.search(label)):
                         comments = parse_interactions(m.group(1))
                     if not shares and (m := SHARE_RE.search(label)):
-                        shares = parse_interactions(m.group(1))
+                        shares = parse_interactions(m.group(1) or m.group(2) or '')
                     if comments and shares:
                         break
             except Exception:
