@@ -156,8 +156,7 @@ class FacebookScraper:
                                 
                                 # Bóc tách dữ liệu
                                 stats      = PostExtractor.get_stats(block)
-                                # score      = stats['reactions'] + stats['comments'] * 2 + stats['shares'] * 3
-                                score      = stats['comments']
+                                score      = stats['reactions'] + stats['comments'] * 2 + stats['shares'] * 3
                                 media_url  = PostExtractor.get_media(block, post_url)
                                 image_urls = PostExtractor.get_images(block)
                                 content    = PostExtractor.get_content(block)
