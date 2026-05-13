@@ -166,83 +166,47 @@ class PostExtractor:
         except Exception:
             pass
 
-        # ── COMMENTS + SHARES: Bắt theo vị trí trong action bar ───────────
+        # ── COMMENTS + SHARES: đọc 3 số tương tác theo thứ tự hiển thị ──────
         try:
             action_bar = element.evaluate("""
                 (el) => {
                     const results = { comments: 0, shares: 0 };
-                    
-                    // Tìm wrapper chứa các nút tương tác chính
-                    const allBtns = el.querySelectorAll('div[role="button"], span[role="button"]');
-                    
-                    // Thu thập tất cả button chỉ là số thuần, theo thứ tự DOM
-                    const numericBtns = [];
-                    for (const btn of allBtns) {
-                        const txt = (btn.innerText || '').trim();
-                        // Số thuần: chỉ chứa chữ số, dấu chấm, dấu phẩy, và suffix K/M/T/B
-                        if (/^[\\d][\\d.,]*\\s*[KkMmTtBb]?$/.test(txt)) {
-                            // Kiểm tra nút này KHÔNG nằm trong vùng bình luận
-                            const parentArticle = btn.closest('[role="article"]');
-                            const isInComment = parentArticle && 
-                                parentArticle !== el.querySelector('[role="article"]');
-                            if (!isInComment) {
-                                numericBtns.push({ 
-                                    text: txt, 
-                                    ariaLabel: btn.getAttribute('aria-label') || '',
-                                    context: btn.closest('div')?.innerText || ''
-                                });
-                            }
-                        }
-                    }
-                    
-                    // Ưu tiên 1: Dùng context nếu rõ ràng
-                    for (const btn of numericBtns) {
-                        const ctx = btn.context.toLowerCase();
-                        const aria = btn.ariaLabel.toLowerCase();
-                        
-                        if (ctx.includes('bình luận') || ctx.includes('comment') ||
-                            aria.includes('bình luận') || aria.includes('comment')) {
-                            if (!results.comments) results.comments = btn.text;
-                        }
-                        // KHÔNG dùng context để detect share vì "Chia sẻ" (nút hành động)
-                        // và số share nằm gần nhau → false positive
+                    const numericRe = /^[\\d][\\d.,]*\\s*[KkMmTtBb]?$/;
+                    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                    const nums = [];
+                    const seen = new Set();
+
+                    while (walker.nextNode()) {
+                        const txt = (walker.currentNode.nodeValue || '').trim();
+                        if (!numericRe.test(txt)) continue;
+
+                        const parent = walker.currentNode.parentElement;
+                        if (!parent) continue;
+                        const style = window.getComputedStyle(parent);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+                        const key = `${txt}|${parent.tagName}|${parent.className}`;
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        nums.push(txt);
                     }
 
-                    // Ưu tiên 2: Fallback theo vị trí thứ tự
-                    // Sau khi đã biết comments, shares là số numeric TIẾP THEO sau comments
-                    if (results.comments && !results.shares) {
-                        let foundComments = false;
-                        for (const btn of numericBtns) {
-                            if (btn.text === results.comments && !foundComments) {
-                                foundComments = true;
-                                continue;
-                            }
-                            if (foundComments) {
-                                results.shares = btn.text;  // Số liền sau comments = shares
-                                break;
-                            }
-                        }
+                    // Mẫu UI phổ biến: [reactions, comments, shares]
+                    if (nums.length >= 3) {
+                        results.comments = nums[1] || 0;
+                        results.shares = nums[2] || 0;
                     }
 
-                    // Ưu tiên 3: Nếu không tìm được comments qua context
-                    // thì numericBtns[1]=comments, numericBtns[2]=shares (bỏ qua [0]=reactions)
-                    if (!results.comments && numericBtns.length >= 2) {
-                        results.comments = numericBtns[1]?.text || 0;
-                    }
-                    if (!results.shares && numericBtns.length >= 3) {
-                        results.shares = numericBtns[2]?.text || 0;
-                    }
-                    
                     return results;
                 }
             """)
-            
+
             if action_bar:
                 if action_bar.get('comments'):
                     comments = parse_interactions(str(action_bar['comments']))
                 if action_bar.get('shares'):
                     shares = parse_interactions(str(action_bar['shares']))
-                    
+
         except Exception:
             pass
 
@@ -257,7 +221,7 @@ class PostExtractor:
                     if not comments and (m := COMMENT_RE.search(label)):
                         comments = parse_interactions(m.group(1))
                     if not shares and (m := SHARE_RE.search(label)):
-                        shares = parse_interactions(m.group(1))
+                        shares = parse_interactions(m.group(1) or m.group(2) or '')
                     if comments and shares:
                         break
             except Exception:
