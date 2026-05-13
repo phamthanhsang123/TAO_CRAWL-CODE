@@ -19,8 +19,6 @@ class PostExtractor:
         # ── BƯỚC 1: Tìm URL bài viết ─────────────────────────────────────
               for link in all_links:
                   href = link.get_attribute('href') or ''
-                  if '/posts/' not in href and '/permalink/' not in href:
-                     continue
                   if not POST_URL_RE.search(href):
                      continue
                   candidate = clean_post_url(href)
@@ -128,130 +126,81 @@ class PostExtractor:
     @staticmethod
     def get_stats(element) -> Dict[str, int]:
         reactions = 0
-        comments  = 0
-        shares    = 0
-        seen: set = set()
-        # kiểm tra xem nằm ở đâu
-        # # DEBUG: thêm tạm vào đầu hàm
-        # try:
-        #     for btn in element.locator('div[role="button"], span[role="button"]').all():
-        #        txt = (btn.inner_text() or '').strip()
-        #        if txt:
-        #            print(f"[DEBUG BTN] repr={repr(txt[:80])}")
-        #     for node in element.locator('[aria-label]').all():
-        #          label = (node.get_attribute('aria-label') or '').strip()
-        #          if label:
-        #             print(f"[DEBUG ARIA] repr={repr(label[:80])}")
-        # except:
-        #     pass
+        comments = 0
+        shares = 0
 
-        # ── REACTIONS: Giữ nguyên logic cũ qua aria-label ─────────────────
         try:
-            for node in element.locator('[aria-label]').all():
-                label = (node.get_attribute('aria-label') or '').strip()
-                if not label or label in seen:
-                    continue
-                seen.add(label)
-                ll = label.lower()
-
-                if NON_REACTION_KEYWORDS.search(ll):
-                    continue
-
-                if 'người' in ll:
-                    m = REACTION_NUM_RE.search(label)
-                    if m:
-                        val = parse_interactions(m.group(1))
-                        if val > 0:
-                            reactions += val
-        except Exception:
-            pass
-
-        # ── COMMENTS + SHARES: Bắt theo vị trí trong action bar ───────────
-        try:
-            action_bar = element.evaluate("""
+            stats = element.evaluate(r"""
                 (el) => {
-                    const results = { comments: 0, shares: 0 };
-                    
-                    // Tìm wrapper chứa các nút tương tác chính
-                    const allBtns = el.querySelectorAll('div[role="button"], span[role="button"]');
-                    
-                    // Thu thập tất cả button chỉ là số thuần, theo thứ tự DOM
-                    const numericBtns = [];
-                    for (const btn of allBtns) {
-                        const txt = (btn.innerText || '').trim();
-                        // Số thuần: chỉ chứa chữ số, dấu chấm, dấu phẩy, và suffix K/M/T/B
-                        if (/^[\\d][\\d.,]*\\s*[KkMmTtBb]?$/.test(txt)) {
-                            // Kiểm tra nút này KHÔNG nằm trong vùng bình luận
-                            const parentArticle = btn.closest('[role="article"]');
-                            const isInComment = parentArticle && 
-                                parentArticle !== el.querySelector('[role="article"]');
-                            if (!isInComment) {
-                                numericBtns.push({ 
-                                    text: txt, 
-                                    ariaLabel: btn.getAttribute('aria-label') || '',
-                                    context: btn.closest('div')?.innerText || ''
-                                });
-                            }
+                    const toNumber = (raw) => {
+                        if (!raw) return 0;
+                        let t = String(raw).toLowerCase().replace(/\\s+/g, ' ').trim();
+                        t = t.replace(/[^\d.,kmbt]/g, '');
+                        if (!t) return 0;
+
+                        let mul = 1;
+                        if (t.endsWith('k')) { mul = 1_000; t = t.slice(0, -1); }
+                        else if (t.endsWith('m')) { mul = 1_000_000; t = t.slice(0, -1); }
+                        else if (t.endsWith('b')) { mul = 1_000_000_000; t = t.slice(0, -1); }
+                        else if (t.endsWith('t')) { mul = 1_000_000_000_000; t = t.slice(0, -1); }
+
+                        t = t.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+                        const n = parseFloat(t);
+                        return Number.isFinite(n) ? Math.round(n * mul) : 0;
+                    };
+
+                    const getFirstNumber = (text) => {
+                        if (!text) return 0;
+                        const m = String(text).match(/\d[\d.,]*\\s*[kmbt]?/i);
+                        return m ? toNumber(m[0]) : 0;
+                    };
+
+                    let reactions = 0;
+                    let comments = 0;
+                    let shares = 0;
+                    const seen = new Set();
+
+                    for (const node of el.querySelectorAll('[aria-label], div[role="button"], span[role="button"]')) {
+                        const label = ((node.getAttribute('aria-label') || '') + ' ' + (node.innerText || '')).trim();
+                        if (!label) continue;
+                        const key = label.toLowerCase();
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+
+                        if ((/comment|bình\\s*luận/i).test(label)) {
+                            comments = Math.max(comments, getFirstNumber(label));
+                            continue;
                         }
-                    }
-                    
-                    // Ưu tiên 1: Khi có đủ 3 số ở action bar thì lấy theo thứ tự cố định
-                    // [0]=reactions, [1]=comments, [2]=shares (ổn định hơn context ở popup post)
-                    if (numericBtns.length >= 3) {
-                        results.comments = numericBtns[1]?.text || 0;
-                        results.shares = numericBtns[2]?.text || 0;
-                        return results;
+                        if ((/share|chia\\s*sẻ/i).test(label)) {
+                            shares = Math.max(shares, getFirstNumber(label));
+                            continue;
+                        }
+                        if ((/like|react|người|thích|cảm\\s*xúc/i).test(label) && !(/comment|bình\\s*luận|share|chia\\s*sẻ/i).test(label)) {
+                            reactions = Math.max(reactions, getFirstNumber(label));
+                        }
                     }
 
-                    // Ưu tiên 2: Dùng context nếu chỉ bắt được 1-2 số
-                    for (const btn of numericBtns) {
-                        const ctx = btn.context.toLowerCase();
-                        const aria = btn.ariaLabel.toLowerCase();
-                        if (ctx.includes('bình luận') || ctx.includes('comment') ||
-                            aria.includes('bình luận') || aria.includes('comment')) {
-                            if (!results.comments) results.comments = btn.text;
-                        }
-                    }
-
-                    // Ưu tiên 3: Nếu chỉ còn 1 số phía sau comments thì coi là shares
-                    if (results.comments && !results.shares) {
-                        let foundComments = false;
-                        for (const btn of numericBtns) {
-                            if (btn.text === results.comments && !foundComments) {
-                                foundComments = true;
-                                continue;
-                            }
-                            if (foundComments) {
-                                results.shares = btn.text;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    return results;
+                    return { reactions, comments, shares };
                 }
             """)
-            
-            if action_bar:
-                if action_bar.get('comments'):
-                    comments = parse_interactions(str(action_bar['comments']))
-                if action_bar.get('shares'):
-                    shares = parse_interactions(str(action_bar['shares']))
-                    
+
+            if stats:
+                reactions = max(reactions, int(stats.get('reactions', 0) or 0))
+                comments = max(comments, int(stats.get('comments', 0) or 0))
+                shares = max(shares, int(stats.get('shares', 0) or 0))
         except Exception:
             pass
 
-        # ── FALLBACK: Dùng aria-label "Thích: 93 người" style ─────────────
-        if not comments or not shares:
+        # fallback cũ nếu DOM chưa hiển thị đủ aria-label
+        if comments == 0 or shares == 0:
             try:
                 for node in element.locator('[aria-label]').all():
                     label = (node.get_attribute('aria-label') or '').strip()
                     if not label:
                         continue
-                    ll = label.lower()
-                    if not comments and (m := COMMENT_RE.search(label)):
-                        comments = parse_interactions(m.group(1))
-                    if not shares and (m := SHARE_RE.search(label)):
+                    if comments == 0 and (m := COMMENT_RE.search(label)):
+                        comments = parse_interactions(m.group(1) or m.group(2) or '')
+                    if shares == 0 and (m := SHARE_RE.search(label)):
                         shares = parse_interactions(m.group(1) or m.group(2) or '')
                     if comments and shares:
                         break
