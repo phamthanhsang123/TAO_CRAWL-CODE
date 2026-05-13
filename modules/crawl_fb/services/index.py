@@ -28,7 +28,6 @@ class CrawlService:
             if daily_summary_report:
                 # CÓ DỮ LIỆU: Gửi báo cáo bình thường
                 ggSheet.append_data_to_sheet(data=daily_summary_report)
-                telegram.
                 mes = telegram.format_daily_telegram_report(summaries=daily_summary_report)
                 telegram.send_message(mes)
                 return {"status": "success", "message": "Cào dữ liệu hoàn tất."}
@@ -47,7 +46,7 @@ class CrawlService:
             if str(e) == "LOGIN_FAILED":
                 alert_msg = (
                     "🚨 *CẢNH BÁO CRAWLER: LỖI ĐĂNG NHẬP*\n"
-                    f"Tài khoản: `{payload.tkFB.emailFB or "mặc định"}`\n"
+                    f"Tài khoản: `{payload.tkFB.useName if payload.tkFB else 'mặc định'}`\n"
                     "Nguyên nhân: Sai mật khẩu, dính Checkpoint hoặc yêu cầu mã 2FA. "
                     "Vui lòng kiểm tra lại tài khoản này!"
                 )

@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+sessions/
+facebook_state.json
+*.log
+venv/
+.venv/

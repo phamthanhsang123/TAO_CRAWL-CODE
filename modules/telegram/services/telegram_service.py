@@ -58,6 +58,11 @@ class TelegramService:
             
             # Lấy bài viết hot nhất ra xử lý
             hot = summary.hot_post
+
+            if not hot:
+                msg += "⚠️ Không có bài viết hot trong group này.\n"
+                msg += "─────────────────────\n\n"
+                continue
             
             msg += f"🔥 <b>BÀI VIẾT HOT NHẤT ({hot.score} điểm)</b>\n"
             msg += f" Đăng lúc: {hot.date}\n"
